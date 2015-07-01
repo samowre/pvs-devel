@@ -689,6 +689,7 @@ Use JSON forms to communicate with PVS-lisp
 Even a crude parser can make good use of [[http://cedet.sourceforge.net/][cedet]] (Collection of Emacs
 Development Environment Tools)
 
+**** Modify org-mode to support PVS literate programming
 
 ** New features
 *** Match expressions (Short)
@@ -707,6 +708,7 @@ concepts.
 *** Cesar's termination argument
 *** Patch mechanism improvement (Short)
 
+*** Use Git automatically for specs and proofs
 ** Improvements
 *** TCC maintenance when things change (definitions, PVS patches, etc.) (Short)
 **** TCC diffs 
@@ -751,4 +753,6 @@ Minimize what needs to be reproved after changes to a spec
 *** Lem
 
 ** Nightly builds (Short)
+
 ** PVS releases
+*** Vagrant file for getting PVS for Windows
