@@ -1,0 +1,754 @@
+* PVS Notes
+** PVS TODO
+*** TODO Use new Mac:
+- do git pull
+- make
+- rerun test suite
+- if OK, push out nightly build
+- How does Travis fit into this?
+*** TODO Dave - TC error on categories
+                go-pvs.el sets debug-on-...
+                fix the pvs script for Mac
+                TCCs not printing on Mac - date discrepancy
+                p(f) vs p(f`1, f`2)
+                TC takes forever - possible loop 
+                TCCs are unprovable for preorderAsCat
+*** TODO Byte-compile for Emacs 22, 23, etc.
+*** TODO Added optional type to cases selections, fix tc accordingly
+*** TODO Fix so that a .pvscontext file is not generated if nothing is done
+*** TODO Make sure /tmp files are deleted
+*** TODO Fix expr-eval problem (pairlis break in pvs2cl-operator2)
+*** TODO Speedup typechecker for ~/pvs-specs/Cesar_Munoz/PVS_elim_proof/test.pvs
+*** TODO Fix bug in ~/pvs-specs/Cesar_Munoz/Maybe.pvs adding another IMPORT 
+(defun update-usings-hash (theory theoryname)
+  (let ((thimps (get-importings theory)))
+    (setf (get-importings theory)
+	  (append thimps (list theoryname))))
+  (maphash #'(lambda (th ithinsts)
+	       (unless (or (eq th theory)
+			   (unimported-mapped-theory? th theory theoryname))
+		 (let* ((thinsts (exportable-theory-instances ithinsts theory))
+			(curimps (get-importings th))
+			(expinsts (get-exported-theory-instances
+				   thinsts (closure (exporting theory))))
+			(sthinsts (subst-theory-importings
+				   th expinsts theoryname theory))
+			(newinsts (remove-if #'(lambda (sth)
+						 (member sth curimps
+							 :test #'tc-eq))
+				    sthinsts)))
+		   #+pvsdebug
+		   (assert (or (not (fully-instantiated? theoryname))
+			       (valid-importing-entries? newinsts)))
+		   (when newinsts
+		     (setf (get-importings th) (append curimps newinsts))))))
+	   (lhash-table (using-hash (saved-context theory)))))
+*** TODO Figure out how to do when/unless strategies
+*** TODO Fix `generate-selections-tcc`, `generate-coselections-tcc`, `make-cond-disjoint-tcc`,
+         `make-cond-coverage-tcc` for decl-formals
+*** TODO Fix handling of § in pp, etc.
+*** TODO Check if a pp-tex* (infix-when-expr) is needed
+*** TODO Cesar mail: bug in tc after change
+*** TODO Cesar mail: discover dependent type
+*** TODO Cesar mail: replace closures in ground evaluator
+*** TODO Fix strategies that could take :actuals? key (e.g., case-replace)
+*** TODO typepred should not generate duplicate formulas
+*** TODO Catch errors and try to generate automated bug reports
+*** TODO Fix pp-html.lisp (mentioned on phone by Cesar on 2012-09-06)
+*** TODO Fix saved form of strings in proofs (enough to be able to refactor)
+*** TODO Allow special handling of outfix operators with lists:
+#+BEGIN_SRC pvs
+  [||]: [list[int] -> int]
+  f1: formula [| 1 |] < [| 1, 2 |]
+#+END_SRC
+*** TODO Add tests for PVS Emacs commands
+*** TODO Fix errors caused by mod-decls in ~/pvs-specs/Joe_Stoy/2014-09-25/2.3/tla
+*** TODO Fix recursive function expansion in the prover
+for example, datatype subterms don't terminate
+*** TODO Fix replace* for ndiv typepred
+
+
+** Libraries
+*** References
+Libraries have several possible references:
+- a symbol associated with a library declaration
+- a symbol that corresponds to a subdirectory of a directory in
+  PVS_LIBRARY_PATH
+- a pathname.  Note that this may be ambiguous, e.g., foo may be a
+  subdirectory of the current context or some PVS_LIBRARY_PATH dir.
+  for this case, we treat PVS_LIBRARY_PATH as if preceded with ".:"
+
+Given an reference, ref-to-id finds the corresponding id, either a valid
+library declaration id (this only makes sense if *current-context* is
+set), or the name of a subdirectory of a dir in PVS_LIBRARY_PATH.
+
+** PVS externals
+*** TODO PVS in Why3
+> Jean-Christophe: When you were here this Spring,
+> you mentioned that there were some issues with
+> using PVS as a back-end to Why.  Can you remind
+> us what these are so we can try and fix them?
+
+Sure.
+
+In Why, we have declaration-level polymorphism, à la ML.
+For instance, I can declare the polymorphic type of lists as follows
+
+	type list 'a = Nil | Cons 'a (list 'a)
+
+Then you can instantiate the type variable 'a by any type, to get types
+such as "list int", "list bool", "list (list int)", but also other
+polymorphic types such as "list (list 'a)" or "list ('a, 'b)".
+
+Naturally, I would translate the declaration for type list to PVS as a
+theory, say List, where the type parameter 'a is a PVS TYPE parameter for
+the theory List.
+
+Then the issues arrive when we introduce symbols/axioms/lemmas involving
+lists with a different number of type parameters.
+For instance, I may introduce a predicate for sorted lists of integers, e.g.
+
+	predicate sorted (list int)
+
+together with axioms such as
+
+  lemma sorted_mem:
+    forall x: t, l: list int.
+    (forall y: t. mem y l -> x <= y) /\ sorted l <-> sorted (Cons x l)
+
+and I cannot do so in the same PVS theory List, since there is no type
+parameter anymore. Similarly, I may want to define a predicate over lists
+of polymorphic pairs, e.g.
+
+	function zip (list 'a) (list 'b) : list ('a, 'b)
+
+and I cannot do so in the same PVS theory, since now I have two type
+parameters instead of one.
+
+As you see, I'm already having three different PVS theories. In practice,
+it is even worse, because you cannot always gather declarations with the
+same number of type parameters together, because of dependencies. So you
+end up with many small PVS theories and a lot of IMPORTING
+commands. Additionally, it is almost impossible to get a PVS file that
+looks like the initial Why file, with declarations coming roughly in the
+same order.
+
+Another route would be to use some encoding of polymorphism we are already
+using for SMT solvers. Then we are back in many-sorted logic and it is
+immediate to translate that to PVS. But that would clutter the definitions
+and lemmas so much that the user would be lost.
+Since the purpose is to do some interactive proof with PVS, we can't
+afford that.
+
+May be there are other solutions that I missed. If so, please tell me. I'm
+really willing to have a PVS output in our new tool Why3, and you help is
+much welcome.
+
+
+PS: By the way, in June you mentioned I should send my proof of the 2-line
+C program solving the N-queens to VSTTE; I did so and it got
+accepted. Thanks for the encouragement.
+
+Best regards,
+-- 
+Jean-Christophe
+
+*** TODO ilisp persistent history
+
+*** TODO ASDF replacement for defsystem
+
+*** TODO slime replacement for ilisp
+
+** PVS interface
+*** Prover printout
+Mostly done in proofstepper and prove*-int
+  * format-printout: part of the proofstate - needs string protection
+  * yields subgoals/simplifies to - can be determined from proofstate result
+  * output-proofstate - this is all that's really needed
+
+Rule? (skosimp)
+Skolemizing and flattening,         --> printout
+this simplifies to:                 --> result
+mod_wrap_inj :                      --> label
+
+{-1}  n!1 < m!1
+{-2}  a!1 < m!1
+{-3}  b!1 < m!1
+{-4}  a!1 > 0
+{-5}  mod(n!1 + a!1, m!1) = mod(n!1 - b!1, m!1)
+  |-------
+{1}   a!1 + b!1 = m!1
+
+
+*** PVS JSON in raw mode
+
+This was written with Eclipse in mind, but is implemented generically.
+Eclipse runs PVS in raw (no Emacs) mode as a subprocess with associated
+input, output, and error streams.  It can send strings to the input, and
+read the output.  It also has a console window, allowing direct
+interaction with the PVS process (i.e., lisp).  This is mostly for
+development and debugging.
+
+Similar to the [[http://www.jsonrpc.org/specification][json-rpc]] spec, the way to pass in JSON to a pvs raw 
+process is to send the string
+
+: (pvs-json "{\"method\": function, \"params\": params, \"id\": id}")
+
+where function is a PVS lisp function, params is a list of arguments to
+that function, and id is a unique id generated by the calling process.  If
+the id is omitted, the function will be invoked, but there will be no
+response.
+
+When PVS wishes to send JSON to Eclipse, it prints a JSON object to the
+output stream.  Note that PVS will be printing other things, but JSON will
+always be uniquely identified with a single left set brace '{' (on a line
+by itself) followed by the contents, then the right brace '}' again on a
+line by itself.  For example,
+
+#+BEGIN_SRC js
+{
+"result": "typechecked", "id": 13
+}
+#+END_SRC
+
+
+
+*** Eclipse
+**** TODO: Json form for entering/exiting prover
+     SCHEDULED: <2012-05-28 Mon>
+
+**** TODO: Json form for pvs-err, pvs-buf, etc.
+     SCHEDULED: <2012-05-30 Wed>
+*** PVS XML-RPC
+
+** PVS and Unicode
+
+\langle 〈   \rangle 〉
+\"< «   \"> »
+\ldata 《   \rdata 》
+\ll ≪   \gg ≫
+
+\exists ∃
+\forall ∀
+
+\Box □
+\Diamond ◇
+
+\bigvee ⋁
+\bigwedge ⋀
+\vee ∨
+\wedge ∧
+\iff ⇔
+\circ ∘
+
+\le ≤ 
+\ge ≥
+
+\in ∈
+\bigcap ⋂
+\bigcup ⋃
+\cap ∩
+\cup ∪
+\subset ⊂
+\supset ⊃
+
+\Bumpeq ≎
+\Cap ⋒
+\Cup ⋓
+\Downarrow ⇓
+\Join ⋈
+\Leftarrow ⇐
+\Leftrightarrow ⇔
+\Lleftarrow ⇚
+\Longleftarrow ⇐
+\Longleftrightarrow ⇔
+\Longrightarrow ⇒
+\Lsh ↰
+\Rightarrow ⇒
+\Rrightarrow ⇛
+\Rsh ↱
+\Subset ⋐
+\Supset ⋑
+\Uparrow ⇑
+\Updownarrow ⇕
+\Vdash ⊩
+\Vert ‖
+\Vvdash ⊪
+\amalg ∐
+\angle ∠
+\approx ≈
+\approxeq ≊
+\asymp ≍
+\backcong ≌
+\backepsilon ∍
+\backsim ∽
+\backsimeq ⋍
+\barwedge ⊼
+\because ∵
+\between ≬
+\bigcirc ◯
+\bigstar ★
+\bigtriangledown ▽
+\bigtriangleup △
+\blacklozenge ✦
+\blacksquare ▪
+\blacktriangle ▴
+\blacktriangledown ▾
+\blacktriangleleft ◂
+\blacktriangleright ▸
+\bowtie ⋈
+\boxminus ⊟
+\boxplus ⊞
+\boxtimes ⊠
+\bullet •
+\bumpeq ≏
+\cdot ·
+\cdots ⋯
+\centerdot ·
+\circeq ≗
+\circlearrowleft ↺
+\circlearrowright ↻
+\circledast ⊛
+\circledcirc ⊚
+\circleddash ⊝
+\clubsuit ♣
+\coloneq ≔
+\cong ≅
+\curlyeqprec ⋞
+\curlyeqsucc ⋟
+\curlypreceq ≼
+\curlyvee ⋎
+\curlywedge ⋏
+\curvearrowleft ↶
+\curvearrowright ↷
+\dag †
+\dagger †
+\daleth ד
+\dashv ⊣
+\ddag ‡
+\ddagger ‡
+\ddots ⋱
+\defs ≙
+\diamond ⋄
+\diamondsuit ♢
+\div ÷
+\divideontimes ⋇
+\doteq ≐
+\doteqdot ≑
+\dotplus ∔
+\dotsquare ⊡
+\downarrow ↓
+\downdownarrows ⇊
+\downleftharpoon ⇃
+\downrightharpoon ⇂
+\eqcirc ≖
+\eqcolon ≕
+\eqslantgtr ⋝
+\eqslantless ⋜
+\equiv ≡
+\fallingdotseq ≒
+\flat ♭
+\flq ‹
+\flqq «
+\frown ⌢
+\frq ›
+\frqq »
+\geq ≥
+\geqq ≧
+\geqslant ≥
+\gets ←
+\ggg ⋙
+\gnapprox ⋧
+\gneq ≩
+\gneqq ≩
+\gnsim ⋧
+\gtrapprox ≳
+\gtrdot ⋗
+\gtreqless ⋛
+\gtreqqless ⋛
+\gtrless ≷
+\gtrsim ≳
+\gvertneqq ≩
+\heartsuit ♥
+\hookleftarrow ↩
+\hookrightarrow ↪
+\lceil ⌈
+\ldots …
+\leadsto ↝
+\leftarrow ←
+\leftarrowtail ↢
+\leftharpoondown ↽
+\leftharpoonup ↼
+\leftleftarrows ⇇
+\leftparengtr 〈
+\leftrightarrow ↔
+\leftrightarrows ⇆
+\leftrightharpoons ⇋
+\leftrightsquigarrow ↭
+\leftthreetimes ⋋
+\leq ≤
+\leqq ≦
+\leqslant ≤
+\lessapprox ≲
+\lessdot ⋖
+\lesseqgtr ⋚
+\lesseqqgtr ⋚
+\lessgtr ≶
+\lesssim ≲
+\lfloor ⌊
+\lhd ◁
+\llbracket 〚
+\llcorner ⌞
+\lnapprox ⋦
+\lneq ≨
+\lneqq ≨
+\lnot ¬
+\lnsim ⋦
+\longleftarrow ←
+\longleftrightarrow ↔
+\longmapsto ↦
+\longrightarrow →
+\looparrowleft ↫
+\looparrowright ↬
+\lozenge ✧
+\lrcorner ⌟
+\ltimes ⋉
+\lvertneqq ≨
+\maltese ✠
+\mapsto ↦
+\measuredangle ∡
+\mid ∣
+\models ⊧
+\mp ∓
+\multimap ⊸
+\nLeftarrow ⇍
+\nLeftrightarrow ⇎
+\nRightarrow ⇏
+\nVDash ⊯
+\nVdash ⊮
+\nabla ∇
+\napprox ≉
+\natural ♮
+\ncong ≇
+\ne ≠
+\nearrow ↗
+\neg ¬
+\neq ≠
+\nequiv ≢
+\nexists ∄
+\ngeq ≱
+\ngeqq ≱
+\ngeqslant ≱
+\ngtr ≯
+\ni ∋
+\nleftarrow ↚
+\nleftrightarrow ↮
+\nleq ≰
+\nleqq ≰
+\nleqslant ≰
+\nless ≮
+\nmid ∤
+\not ̸
+\notin ∉
+\nparallel ∦
+\nprec ⊀
+\npreceq ⋠
+\nrightarrow ↛
+\nshortmid ∤
+\nshortparallel ∦
+\nsim ≁
+\nsimeq ≄
+\nsubset ⊄
+\nsubseteq ⊈
+\nsubseteqq ⊈
+\nsucc ⊁
+\nsucceq ⋡
+\nsupset ⊅
+\nsupseteq ⊉
+\nsupseteqq ⊉
+\ntriangleleft ⋪
+\ntrianglelefteq ⋬
+\ntriangleright ⋫
+\ntrianglerighteq ⋭
+\nvDash ⊭
+\nvdash ⊬
+\nwarrow ↖
+\odot ⊙
+\ominus ⊖
+\oplus ⊕
+\oslash ⊘
+\otimes ⊗
+\parallel ∥
+\perp ⊥
+\pitchfork ⋔
+\pm ±
+\prec ≺
+\precapprox ≾
+\preceq ≼
+\precnapprox ⋨
+\precnsim ⋨
+\precsim ≾
+\propto ∝
+\qed ∎
+\rceil ⌉
+\rfloor ⌋
+\rhd ▷
+\rightarrow →
+\rightarrowtail ↣
+\rightharpoondown ⇁
+\rightharpoonup ⇀
+\rightleftarrows ⇄
+\rightleftharpoons ⇌
+\rightparengtr 〉
+\rightrightarrows ⇉
+\rightthreetimes ⋌
+\risingdotseq ≓
+\rrbracket 〛
+\rtimes ⋊
+\searrow ↘
+\setminus ∖
+\sharp ♯
+\shortmid ∣
+\shortparallel ∥
+\sim ∼
+\simeq ≃
+\smallamalg ∐
+\smallsetminus ∖
+\smallsmile ⌣
+\smile ⌣
+\spadesuit ♠
+\sphericalangle ∢
+\sqcap ⊓
+\sqcup ⊔
+\sqsubset ⊏
+\sqsubseteq ⊑
+\sqsupset ⊐
+\sqsupseteq ⊒
+\square □
+\squigarrowright ⇝
+\star ⋆
+\subseteq ⊆
+\subseteqq ⊆
+\subsetneq ⊊
+\subsetneqq ⊊
+\succ ≻
+\succapprox ≿
+\succcurlyeq ≽
+\succeq ≽
+\succnapprox ⋩
+\succnsim ⋩
+\succsim ≿
+\supseteq ⊇
+\supseteqq ⊇
+\supsetneq ⊋
+\supsetneqq ⊋
+\surd √
+\swarrow ↙
+\textbigcircle ⃝
+\textdied ✝
+\textmusicalnote ♪
+\textopenbullet ◦
+\therefore ∴
+\thickapprox ≈
+\thicksim ∼
+\times ×
+\to →
+\triangle ▵
+\triangledown ▿
+\triangleleft ◃
+\trianglelefteq ⊴
+\triangleq ≜
+\triangleright ▹
+\trianglerighteq ⊵
+\twoheadleftarrow ↞
+\twoheadrightarrow ↠
+\ulcorner ⌜
+\uparrow ↑
+\updownarrow ↕
+\upleftharpoon ↿
+\uplus ⊎
+\uprightharpoon ↾
+\upuparrows ⇈
+\urcorner ⌝
+\vDash ⊨
+\varpropto ∝
+\vartriangleleft ⊲
+\vartriangleright ⊳
+\vdash ⊢
+\vdots ⋮
+
+** Font-lock for PVS
+Want special font-lock for the *pvs* buffer:
+ Should be sensitive to in-checker and in-evaluator:
+   if in-checker
+   then ;; Rule?
+        ;; command - (skosimp) - strings should be PVS exprs
+        ;; action - Skolemizing and flattening,
+	;; result - this simplifies to: 
+        ;; sequent: label - mod_wrap_inj :  
+                    s-formula: label - {-1}
+                               formula - n!1 < m!1
+                    |-------
+        
+** Datatype issue
+Th[t: type]: theory begin T: type end Th
+
+D[t: type]: datatype
+  begin
+   importing Th
+   c(a: T[D]): c?
+  end D
+
+This is illegal, as D is not positive in T[D], but is this too
+constraining?  The issue is that, in principle, T could be instantiated to
+[t -> int], in which case T[D] becomes [D -> int], which is illegal.
+
+But the only way to instantiate T in this case is through a mapping,
+something like
+
+D[t: type]: datatype
+  begin
+   Thi: theory = Th
+   c(a: T[D]): c?
+  end D
+
+th[t: type]: theory
+ begin
+  importing D[t]{{Thi := Th[t]{{T := [t -> int]}} }}
+ end th
+
+But this could be checked as part of typechecking mappings.
+     
+** PVS 6.0 release
+*** Announcement should mention
+ - Declaration parameters
+ - Unicode
+ - NASA integration/NASA lib 
+ - Why3
+** Repair TCCs
+*** General
+1. Need to recognize TCC snapshots.  What to store, when to store it...
+- currently store newline-comment, generated-by, definition,
+  closed-definition, in bin file
+-- After every typecheck, for each declaration, see if the associated TCCs
+have changed, by comparing ids and closed-definitions.
+--- Nothing changed, no snapshot
+--- Else snapshot of TCCs associated with given declaration
+Possibly use Git for each declaration
+*** 6.1 from 6.0
+There is a change in TCC ordering, this affects both TC and proofs.
+Need to write a script that fixes proofs:
+- First need to find the differences - this could be done by running 
+- For TCCs from typecheck, rearrange proof order
+- For TCCs (and typepreds) modify the actual proofscript
+  For example, typepred in 6.0 might result in `{-1} A {-2} B`, and the
+  proof subsequently refer to `-2`.  Maybe introduce a `reorder` command,
+  which would take two lists, e.g., (-1 -2) (-2 -1) which is treated as a
+  permutation.  The other possibility is to look for references to `-1` and
+  `-2`, but then need to keep track of when new hypotheses are added in
+  front - only possible if rerunning the proof.
+** Patches
+PVS patch files reside in =pvs-patches= subdirectories of the directories
+in =PVS_LIBRARY_PATH= and the PVS=/lib/= subdirectory.  Patches are named 
+=patch-=yyyymmdd=.lisp=, with the date included. 
+
+* PVS possible IR&D Items
+** Update documentation (Short)
+*** Language
+Fold in datatypes and interpretations reports
+*** Prover
+*** User Guide
+*** Tutorial
+*** Man pages
+*** NASA tools and Libraries?
+*** Web pages
+Using Paolo and Patrick's pages
+** GUIs 
+*** JSON (Short/Medium)
+Create JSON versions of all PVS commands
+*** XMLRPC
+Add more methods to the XMLRPC server
+Make it work for SBCL
+*** wxPython client
+Extend the wxPython client to incorporate those methods.
+*** websockets (Short)
+Look into websockets as another server (Patrick request)
+*** Emacs
+**** Proof buffers/frames
+Almost completed
+**** tooltips
+In place, can use some improvements and testing
+**** Slime
+Change Emacs interface to use Slime instead of Ilisp.
+**** XMLRPC
+Make an Emacs XMLRPC client interface.
+**** JSON
+Use JSON forms to communicate with PVS-lisp
+
+**** Parser
+Even a crude parser can make good use of [[http://cedet.sourceforge.net/][cedet]] (Collection of Emacs
+Development Environment Tools)
+
+
+** New features
+*** Match expressions (Short)
+Allows for ML style pattern matching.  Already started
+*** Dimensional analysis (Medium)
+Have a good start on this
+*** Ontic types
+Like dimensions, e.g., an index used for one array
+can cause a type error (or at least a warning) for a different array.
+Similar to dimensions, but dimensions are limited to subtypes of reals,
+and these types have no product/division.  In fact, two entities with
+matching dimensions may be tagged apart, so these really are separate
+concepts.
+
+*** Datatype generic functions (Long)
+*** Cesar's termination argument
+*** Patch mechanism improvement (Short)
+
+** Improvements
+*** TCC maintenance when things change (definitions, PVS patches, etc.) (Short)
+**** TCC diffs 
+Keep track of older versions of TCCs, make it easy to view differences and
+apply old TCC proofs to new TCCs, etc.  Similar to orphaned proofs (which
+also should be improved)
+**** Create TCC scripts 
+Each new version of PVS should come with a script that can be used to
+associate old TCC proofs with newly renumbered TCCs, including in proofs.
+Also using TCCs in other proofs should be changed accordingly.
+**** Improve recognizing changes to TCCs
+This can never be perfect, but can certainly be improved.
+*** TCC promotion to a lemma (Medium)
+Also check subsumption wrt lemmas
+*** defstep (Short)
+Finish the prover 'defstep' macro to provide documentation strings on
+the arguments, as well as kinds.  The kinds can be used to invoke
+functions, e.g., typecheck, resolve, etc. in a uniform way.  More
+important, these functions will keep track of the results, allowing for
+search, refactoring, etc. to work more effectively on proofs.  Currently
+proofs only allow for syntactic checking in the strings.
+*** Hypatia (Short)
+Fully integrate Ben Di Vito's Hypatia package (a database for searching
+libraries).  In addition, Hypatia works on strings, and cannot deal with
+logical search (e.g., positive occurrences of a given definition in
+lemmas)
+*** A prune lemma/TCC command that tries to find a minimal set of conditions (Short)
+*** Better handling of recursive functions in grind (Medium)
+*** C generator (Short/Medium)
+*** Replace defsystem with ASDF (Long)
+And integrate quicklisp
+*** PVS-in-PVS (Long)
+*** Rewrite Shostak DP (in PVS) (Long)
+*** Better incrementality (Medium)
+Minimize what needs to be reproved after changes to a spec
+*** Nested modules (Medium)
+
+** Regression test improvements (Short/Medium)
+** Front ends (Long)
+*** Why3
+*** L3
+*** Lem
+
+** Nightly builds (Short)
+** PVS releases
